@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { getJson } from '../api/client.js';
 
 type Props = {
   title: string;
   description: string;
-  path: string;
-  collection: string;
+  emptyMessage: string;
+  state: LoadState;
 };
 type Entry = Record<string, unknown>;
+export type LoadState = { entries: Entry[] | null; error: string | null };
 
 function isEntryArray(value: unknown): value is Entry[] {
   return Array.isArray(value) && value.every(
@@ -21,27 +21,31 @@ function formatValue(value: unknown): string {
   return String(value ?? '');
 }
 
-export function CapabilityCard({ title, description, path, collection }: Props) {
-  const [entries, setEntries] = useState<Entry[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+export function useLoad(load: () => Promise<Record<string, unknown>>, collection: string): LoadState {
+  const [state, setState] = useState<LoadState>({ entries: null, error: null });
 
   useEffect(() => {
     let active = true;
-    getJson<Record<string, unknown>>(path)
+    load()
       .then((response) => {
         const data = response[collection];
         if (!isEntryArray(data)) throw new Error('Invalid response format.');
-        if (active) setEntries(data);
+        if (active) setState({ entries: data, error: null });
       })
       .catch((cause: unknown) => {
-        if (active) setError(cause instanceof Error ? cause.message : 'Please try again.');
+        if (active) setState({ entries: null, error: cause instanceof Error ? cause.message : 'Please try again.' });
       });
-
     return () => {
       active = false;
     };
-  }, [collection, path]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collection]);
 
+  return state;
+}
+
+export function CapabilityCard({ title, description, emptyMessage, state }: Props) {
+  const { entries, error } = state;
   return (
     <section className="card h-100">
       <div className="card-body">
@@ -52,7 +56,7 @@ export function CapabilityCard({ title, description, path, collection }: Props) 
         ) : entries === null ? (
           <p role="status">Loading {title.toLowerCase()}...</p>
         ) : entries.length === 0 ? (
-          <p>No {collection} available.</p>
+          <p>{emptyMessage}</p>
         ) : (
           <ul className="list-group">
             {entries.map((entry, index) => (
