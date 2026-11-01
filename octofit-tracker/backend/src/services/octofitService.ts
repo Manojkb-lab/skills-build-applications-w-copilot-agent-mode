@@ -75,11 +75,46 @@ export async function createTeam(input: unknown) {
 }
 
 export async function getLeaderboard() {
-  return [];
+  const teams = await Team.aggregate<{ teamName: string; totalPoints: number }>([
+    {
+      $lookup: {
+        from: Activity.collection.name,
+        localField: '_id',
+        foreignField: 'team',
+        as: 'activities',
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        teamName: '$name',
+        totalPoints: { $sum: '$activities.points' },
+      },
+    },
+    { $sort: { totalPoints: -1, teamName: 1 } },
+  ]);
+
+  return teams.map((team, index) => ({ ...team, rank: index + 1 }));
 }
 
-export async function suggestWorkouts(_userEmail: string) {
-  return Workout.find().limit(1).lean();
+export async function suggestWorkouts(userEmail: string) {
+  const user = await User.findOne({ email: userEmail }).lean();
+  if (!user) {
+    throw Object.assign(new Error('User not found'), { status: 404 });
+  }
+
+  const recentActivity = await Activity.findOne({ user: user._id }).sort({ occurredAt: -1 }).lean();
+  const focus = user.fitnessGoal || recentActivity?.type;
+  if (!focus) return [];
+
+  const workouts = await Workout.find({
+    focus: { $regex: `^${focus.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, $options: 'i' },
+  }).lean();
+  const reason = recentActivity
+    ? `Suggested based on your ${recentActivity.type} activity and ${focus} goal.`
+    : `Suggested to support your ${focus} goal.`;
+
+  return workouts.map((workout) => ({ ...workout, reason }));
 }
 
 export { User };
